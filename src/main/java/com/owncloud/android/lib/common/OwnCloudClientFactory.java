@@ -1,22 +1,22 @@
 /* ownCloud Android Library is available under MIT license
  *   Copyright (C) 2015 ownCloud Inc.
- *   
+ *
  *   Permission is hereby granted, free of charge, to any person obtaining a copy
  *   of this software and associated documentation files (the "Software"), to deal
  *   in the Software without restriction, including without limitation the rights
  *   to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  *   copies of the Software, and to permit persons to whom the Software is
  *   furnished to do so, subject to the following conditions:
- *   
+ *
  *   The above copyright notice and this permission notice shall be included in
  *   all copies or substantial portions of the Software.
- *   
- *   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, 
+ *
+ *   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
  *   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- *   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND 
- *   NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS 
- *   BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN 
- *   ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN 
+ *   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ *   NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+ *   BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ *   ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
  *   CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  *   THE SOFTWARE.
  *
@@ -35,6 +35,7 @@ import android.net.Uri;
 import android.os.Bundle;
 
 import com.nextcloud.common.NextcloudClient;
+import com.nextcloud.common.OkHttpCredentialsUtil;
 import com.owncloud.android.lib.common.accounts.AccountTypeUtils;
 import com.owncloud.android.lib.common.accounts.AccountUtils;
 import com.owncloud.android.lib.common.accounts.AccountUtils.AccountNotFoundException;
@@ -44,25 +45,24 @@ import com.owncloud.android.lib.common.utils.Log_OC;
 import java.io.IOException;
 import java.security.GeneralSecurityException;
 
-import okhttp3.Credentials;
-
 public class OwnCloudClientFactory {
-    
+
     final private static String TAG = OwnCloudClientFactory.class.getSimpleName();
-    
+
     /** Default timeout for waiting data from the server */
     public static final int DEFAULT_DATA_TIMEOUT = 60000;
     public static final long DEFAULT_DATA_TIMEOUT_LONG = 60000;
-    
+
     /** Default timeout for establishing a connection */
     public static final int DEFAULT_CONNECTION_TIMEOUT = 60000;
+    public static final long DEFAULT_CONNECTION_TIMEOUT_LONG = 60000;
 
 
     /**
      * Creates a OwnCloudClient setup for an ownCloud account
-     * 
+     *
      * Do not call this method from the main thread.
-     * 
+     *
      * @param account                       The ownCloud account
      * @param appContext                    Android application context
      * @return                              A OwnCloudClient object ready to be used
@@ -94,7 +94,7 @@ public class OwnCloudClientFactory {
 
         // Restore cookies
         AccountUtils.restoreCookies(account, client, appContext);
-        
+
         return client;
     }
 
@@ -115,8 +115,8 @@ public class OwnCloudClientFactory {
         //String password = am.blockingGetAuthToken(account, MainApp.getAuthTokenTypePass(),
         // false);
         AccountManagerFuture<Bundle> future = am.getAuthToken(account,
-                                                              AccountTypeUtils.getAuthTokenTypePass(account.type), null,
-                                                              currentActivity, null, null);
+                AccountTypeUtils.getAuthTokenTypePass(account.type), null,
+                currentActivity, null, null);
 
         Bundle result = future.getResult();
         String password = result.getString(AccountManager.KEY_AUTHTOKEN);
@@ -124,17 +124,17 @@ public class OwnCloudClientFactory {
         OwnCloudCredentials credentials = OwnCloudCredentialsFactory.newBasicCredentials(username, password);
 
         client.setCredentials(credentials);
-        
+
         // Restore cookies
         AccountUtils.restoreCookies(account, client, appContext);
-        
+
         return client;
     }
-    
+
     /**
      * Creates a OwnCloudClient to access a URL and sets the desired parameters for ownCloud
      * client connections.
-     * 
+     *
      * @param uri       URL to the ownCloud server; BASE ENTRY POINT, not WebDavPATH
      * @param context   Android context where the OwnCloudClient is being created.
      * @return          A OwnCloudClient object ready to be used
@@ -206,7 +206,24 @@ public class OwnCloudClientFactory {
         // TODO avoid calling to getUserData here
         String userId = am.getUserData(account, AccountUtils.Constants.KEY_USER_ID);
         String username = AccountUtils.getUsernameForAccount(account);
-        String password = am.peekAuthToken(account, AccountTypeUtils.getAuthTokenTypePass(account.type));
+        String password;
+        try {
+            password = am.blockingGetAuthToken(account, AccountTypeUtils.getAuthTokenTypePass(account.type), false);
+            if (password == null) {
+                Log_OC.e(TAG, "Error receiving password token (password==null)");
+                throw new AccountNotFoundException(account, "Error receiving password token (password==null)", null);
+            }
+        } catch (Exception e) {
+            Log_OC.e(TAG, "Error receiving password token", e);
+            throw new AccountNotFoundException(account, "Error receiving password token", e);
+        }
+
+        if (username == null || username.isEmpty() || password.isEmpty()) {
+            throw new AccountNotFoundException(
+                    account,
+                    "Username or password could not be retrieved",
+                    null);
+        }
 
         // Restore cookies
         // TODO v2 cookie handling
@@ -214,7 +231,7 @@ public class OwnCloudClientFactory {
 
         return createNextcloudClient(baseUri,
                 userId,
-                Credentials.basic(username, password),
+                OkHttpCredentialsUtil.basic(username, password),
                 appContext,
                 true);
     }
